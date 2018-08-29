@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="WebServers">
+    <option name="servers">
+      <webServer id="584b4e82-f54f-4ec2-a28c-e2d9bc1b0907" name="111SFTP" url="http://10.214.161.111">
+        <fileTransfer host="10.214.161.111" port="22" rootFolder="/home/give/github/AdvSemiSeg" accessType="SFTP">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" />
+          </advancedOptions>
+          <option name="port" value="22" />
+        </fileTransfer>
+      </webServer>
+    </option>
+  </component>
+</project>

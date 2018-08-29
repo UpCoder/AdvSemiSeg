@@ -7,7 +7,7 @@ import sys
 from collections import OrderedDict
 import os
 from packaging import version
-from dataset.LiverDataset.medicalImage import read_image_file, processing
+from dataset.LiverDataset.medicalImage import read_image_file, processing, preprocessing_agumentation
 import torch
 import torch.nn as nn
 from torch.autograd import Variable
@@ -15,7 +15,10 @@ import torchvision.models as models
 import torch.nn.functional as F
 from torch.utils import data, model_zoo
 
-from model.deeplab import Res_Deeplab
+from model.deeplab import Res_Deeplab as original_model
+from model.deeplab_UNet import Res_Deeplab as unet_model
+from model.deeplab_UNet_CLSTM import Res_Deeplab as unet_clstm_model
+from model.deeplab_UNet_BiCLSTM import Res_Deeplab as unet_biclstm_model
 from dataset.voc_dataset import VOCDataSet
 
 from PIL import Image
@@ -232,15 +235,27 @@ def execute_prediction_one_case(image_path, size_training, n_neighboringslices, 
         print(np.shape(pred))
 
 
-def evaluate_measure_one_case(image_path, gt_path, restore_path, size_training, n_neighboringslices, batch_size=1):
+def evaluate_measure_one_case(image_path, gt_path, restore_path, size_training, n_neighboringslices,
+                              batch_size=1, flag='original'):
     optimizer = True
     # about the model
     num_classes = 2
     cuda_gpu = 0
     original_size = 512
-    model = Res_Deeplab(num_classes=num_classes)
+    if flag == 'original':
+        model = original_model(num_classes=num_classes)
+        restore_path = '/home/give/github/AdvSemiSeg/snapshots/Liver1947.pth'
+    if flag == 'unet':
+        model = unet_model(num_classes=num_classes)
+        restore_path = '/home/give/github/AdvSemiSeg/snapshots_Unet/Liver7555.pth'
+    if flag == 'unet_clstm':
+        model = unet_clstm_model(num_classes=num_classes)
+        restore_path = '/home/give/github/AdvSemiSeg/snapshots_Unet_CLSTM/Liver4141.pth'
+    if flag == 'unet_biclstm':
+        model = unet_biclstm_model(num_classes=num_classes)
+        restore_path = '/home/give/github/AdvSemiSeg/snapshots_Unet_BiCLSTM/Liver844.pth'
     restore_path = restore_path
-
+    print('restore from ', restore_path)
     saved_state_dict = torch.load(restore_path)
     model.load_state_dict(saved_state_dict)
 
@@ -254,7 +269,9 @@ def evaluate_measure_one_case(image_path, gt_path, restore_path, size_training, 
 
     def prediction_one_batch(model, batch_image, interp, cuda_gpu):
         batch_image = np.transpose(batch_image, axes=(0, 3, 1, 2))
-        batch_image = np.concatenate([batch_image, batch_image, batch_image], axis=1)
+        # print('batch_image shape: ', np.shape(batch_image))
+        if flag == 'unet' or flag == 'original':
+            batch_image = np.concatenate([batch_image, batch_image, batch_image], axis=1)
         # print('Shape: ', np.shape(batch_image))
         batch_image_torch = torch.Tensor(batch_image)
         output = model(Variable(batch_image_torch, volatile=True).cuda(cuda_gpu))
@@ -268,7 +285,14 @@ def evaluate_measure_one_case(image_path, gt_path, restore_path, size_training, 
     if image is None:
         print('The image is None!')
         assert False
-    processed_image = processing(original_image, size_training)
+    if flag == 'original':
+        processed_image = processing(original_image, size_training)
+    if flag == 'unet':
+        processed_image = preprocessing_agumentation(original_image, size_training)
+    if flag == 'unet_clstm':
+        processed_image = preprocessing_agumentation(original_image, size_training)
+    if flag == 'unet_biclstm':
+        processed_image = preprocessing_agumentation(original_image, size_training)
     smoother = niismooth.Smoothutil()
     half_num_slice = n_neighboringslices // 2
     image_input = np.zeros(
@@ -284,6 +308,8 @@ def evaluate_measure_one_case(image_path, gt_path, restore_path, size_training, 
                 cur_idx = processed_image.shape[2] - 1
 
             image_input[0, :, :, j] = processed_image[:, :, cur_idx]
+        print('The processed_image shape is ', np.shape(processed_image))
+        print('The batch_image shape is ', np.shape(image_input))
         pred = prediction_one_batch(model, image_input, interp, cuda_gpu)
         if optimizer:
             pred = torch.nn.Softmax()(torch.Tensor(pred)).cpu().data.numpy()
@@ -314,7 +340,7 @@ def evaluate_measure_one_case(image_path, gt_path, restore_path, size_training, 
     return dice
 
 
-def evaluate_measure_one_dir(img_dir, gt_dir, restore_path, size_training, n_neighboringslices, batch_size=1):
+def evaluate_measure_one_dir(img_dir, gt_dir, restore_path, size_training, n_neighboringslices, batch_size=1, flag='original'):
     from glob import glob
     img_paths = glob(os.path.join(img_dir, 'volume-*.nii'))
     print(os.path.join(img_dir, 'volume-*.nii'))
@@ -323,7 +349,7 @@ def evaluate_measure_one_dir(img_dir, gt_dir, restore_path, size_training, n_nei
         basename = os.path.basename(img_path)
         file_id = basename.split('-')[1]
         gt_path = os.path.join(gt_dir, 'segmentation-' + file_id)
-        dice = evaluate_measure_one_case(img_path, gt_path, restore_path, size_training, n_neighboringslices, batch_size)
+        dice = evaluate_measure_one_case(img_path, gt_path, restore_path, size_training, n_neighboringslices, batch_size, flag=flag)
         print(basename, ': ', dice)
         total_dice += dice
     print('Average dice: ', total_dice / len(img_paths))
@@ -367,6 +393,7 @@ def main():
         if index % 100 == 0:
             print('%d processd'%(index))
         image, label, size, name = batch
+        print('image shape: ', np.shape(image))
         size = size[0].numpy()
         output = model(Variable(image, volatile=True).cuda(gpu0))
         output = interp(output).cpu().data[0].numpy()
@@ -390,15 +417,18 @@ def main():
 
 if __name__ == '__main__':
     # main()
-    # evaluate_measure_one_case(
-    #     '/home/give/Documents/dataset/ISBI2017/media/nas/01_Datasets/CT/LITS/Training_Batch_1/volume-0.nii',
-    #     '/home/give/Documents/dataset/ISBI2017/media/nas/01_Datasets/CT/LITS/Training_Batch_1/segmentation-0.nii',
-    #     '/home/give/github/AdvSemiSeg/snapshots/Liver1947.pth',
-    #     size_training=400, n_neighboringslices=1, batch_size=1
-    # )
-    evaluate_measure_one_dir(
-        '/home/give/Documents/dataset/ISBI2017/media/nas/01_Datasets/CT/LITS/Training_Batch_1',
-        '/home/give/Documents/dataset/ISBI2017/media/nas/01_Datasets/CT/LITS/Training_Batch_1',
-        '/home/give/github/AdvSemiSeg/snapshots/Liver1947.pth',
-        size_training=400, n_neighboringslices=1, batch_size=1
+    evaluate_measure_one_case(
+        '/home/give/Documents/dataset/ISBI2017/media/nas/01_Datasets/CT/LITS/Training_Batch_2/volume-28.nii',
+        '/home/give/Documents/dataset/ISBI2017/media/nas/01_Datasets/CT/LITS/Training_Batch_2/segmentation-28.nii',
+        restore_path=None,
+        size_training=400, n_neighboringslices=5, batch_size=1, flag='unet_biclstm'
     )
+
+
+    # if for unet n_neighboringslices is
+    # evaluate_measure_one_dir(
+    #     '/home/give/Documents/dataset/ISBI2017/media/nas/01_Datasets/CT/LITS/Training_Batch_1',
+    #     '/home/give/Documents/dataset/ISBI2017/media/nas/01_Datasets/CT/LITS/Training_Batch_1',
+    #     '/home/give/github/AdvSemiSeg/snapshots/Liver1947.pth',
+    #     size_training=400, n_neighboringslices=5, batch_size=1, flag='unet_clstm'
+    # )

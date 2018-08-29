@@ -293,6 +293,39 @@ def processing(image, size_training):
 
     return after_zoom
 
+
+def preprocessing_agumentation(image, size_training):
+    image = np.array(image)
+    # numpy_clip
+    c_minimum = -300.
+    c_maximum = 500.
+    s_maximum = 255.
+    image = np.clip(image, c_minimum, c_maximum)
+
+    interv = float(c_maximum - c_minimum)
+    image = (image - c_minimum) / interv * s_maximum
+    minval = 0.
+    maxval = 255.
+    image -= minval
+    interv = maxval - minval
+    # print('static scaler 0', interv)
+    # scale down to 0 - 2
+    # image /= (interv / 2)
+    image = np.asarray(image, np.float32)
+    image = image / interv
+    image = image * 2.0
+    # zoom
+    desired_size = [size_training, size_training]
+    desired_size = np.asarray(desired_size, dtype=np.int)
+    zooms = desired_size / np.array(image[:, :, 0].shape, dtype=np.float)
+    print(zooms)
+    after_zoom = np.zeros([size_training, size_training, np.shape(image)[2]])
+    for i in range(np.shape(after_zoom)[2]):
+        after_zoom[:, :, i] = scipy.ndimage.zoom(image[:, :, i], zooms, order=1)  # order = 1 => biliniear interpolation
+
+    return after_zoom
+
+
 if __name__ == '__main__':
     # for phasename in ['NC', 'ART', 'PV']:
     #     convert_dicomseries2mhd(
